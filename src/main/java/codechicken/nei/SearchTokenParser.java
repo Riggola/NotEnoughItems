@@ -292,7 +292,7 @@ public class SearchTokenParser {
                         }
 
                         for (SearchToken token : splitSearchText(contextQuery[0] + contextQuery[1])) {
-                            final ItemFilter result = token.getFilter(this);
+                            final ItemFilter result = token.getFilter(this, true);
                             if (result != null) {
                                 tokens.add(
                                         new RecipeFilter(context, token.ignore == null || token.ignore != '!', result));

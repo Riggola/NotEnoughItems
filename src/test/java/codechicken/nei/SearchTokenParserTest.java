@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Named.named;
 import static org.mockito.Mockito.*;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Function;
@@ -31,7 +32,9 @@ import codechicken.nei.ItemList.AllMultiItemFilter;
 import codechicken.nei.ItemList.AnyMultiItemFilter;
 import codechicken.nei.ItemList.PatternItemFilter;
 import codechicken.nei.SearchField.SearchParserProvider;
+import codechicken.nei.api.IRecipeFilter;
 import codechicken.nei.api.ItemFilter;
+import codechicken.nei.recipe.IRecipeHandler;
 import codechicken.nei.search.IdentifierFilter;
 
 @DisplayName("Search expression")
@@ -319,6 +322,41 @@ public class SearchTokenParserTest {
         assertEquals(2, matchedItems.size());
         assertTrue(matchedItems.contains(itemAB));
         assertTrue(matchedItems.contains(itemABC));
+    }
+
+    @DisplayName("Quoted recipe text matches the complete item name only")
+    @ParameterizedTest(name = "{argumentsWithNames}")
+    @FieldSource("allModesTestProvider")
+    public void testExactQuotedRecipeName(int spaceMode, int patternMode) {
+        SearchTokenParser searchParser = new SearchTokenParser();
+        searchParser.addProvider(defaultParserProvider);
+        IRecipeHandler handler = mock(IRecipeHandler.class);
+        when(handler.getIngredientStacks(0)).thenReturn(Collections.emptyList());
+        when(handler.getOtherStacks(0)).thenReturn(Collections.emptyList());
+
+        PositionedStack recipeOutput = mock(PositionedStack.class);
+        recipeOutput.items = new ItemStack[] { itemAB };
+        when(handler.getResultStack(0)).thenReturn(recipeOutput);
+
+        String quoted = "\"" + itemAB.getDisplayName() + "\"";
+        assertTrue(testRecipeFilter(spaceMode, patternMode, searchParser, ">" + quoted, handler));
+        assertFalse(testRecipeFilter(spaceMode, patternMode, searchParser, "<" + quoted, handler));
+
+        // A longer item name must not match the quoted recipe filter.
+        recipeOutput.items = new ItemStack[] { itemABC };
+        assertFalse(testRecipeFilter(spaceMode, patternMode, searchParser, ">" + quoted, handler));
+        assertTrue(testRecipeFilter(spaceMode, patternMode, searchParser, ">" + itemAB.getDisplayName(), handler));
+
+        // Normal item search keeps its existing substring behavior.
+        assertTrue(testFilterAgainstAllItems(spaceMode, patternMode, searchParser, quoted).contains(itemABC));
+    }
+
+    private static boolean testRecipeFilter(int spaceMode, int patternMode, SearchTokenParser searchParser,
+            String search, IRecipeHandler handler) {
+        config.when(() -> NEIClientConfig.getIntSetting(eq("inventory.search.patternMode"))).thenReturn(patternMode);
+        config.when(() -> NEIClientConfig.getIntSetting(eq("inventory.search.spaceMode"))).thenReturn(spaceMode);
+        IRecipeFilter filter = searchParser.getRecipeFilter(search);
+        return filter.matches(handler, 0);
     }
 
     // Extended+ specific tests

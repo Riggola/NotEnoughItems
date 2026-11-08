@@ -20,7 +20,7 @@ public class RecipeFilterVisitor extends AbstractSearchExpressionVisitor<IRecipe
 
     public RecipeFilterVisitor(SearchTokenParser searchParser) {
         super(searchParser);
-        itemFilterVisitor = new ItemFilterVisitor(searchParser);
+        itemFilterVisitor = new ItemFilterVisitor(searchParser, true);
     }
 
     @Override

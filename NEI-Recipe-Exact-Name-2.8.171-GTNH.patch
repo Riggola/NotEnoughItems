@@ -1,0 +1,251 @@
+diff --git a/README_RECIPE_FILTER_EXACT.md b/README_RECIPE_FILTER_EXACT.md
+new file mode 100644
+index 0000000..7c2a186
+--- /dev/null
++++ b/README_RECIPE_FILTER_EXACT.md
+@@ -0,0 +1,24 @@
++# Recipe search: exact item names
++
++Source: [GTNewHorizons/NotEnoughItems](https://github.com/GTNewHorizons/NotEnoughItems),
++based on tag `2.8.171-GTNH` (commit `030795e`).
++
++This change is limited to the **recipe window** search filter:
++
++- `"steel ingot"` matches the complete displayed item name `Steel Ingot` only.
++- `steel ingot` preserves the existing partial matching behavior.
++- `>"steel ingot"` restricts the match to recipe outputs; `<"steel ingot"` to inputs.
++- The quoted exact-name behavior works in the default search mode as well as Extended+.
++- The regular NEI item search at the bottom of the inventory is unchanged.
++
++The Filter Syntax tooltip includes an exact-name example. The change is implemented
++independently of any specific addon or recipe map.
++
++## Build
++
++Use the normal GTNH NEI build environment and run `./gradlew build`. This source
++snapshot includes a regression test in `SearchTokenParserTest.java`.
++
++**Verification:** Java syntax parsing passed. Gradle tests could not run in the
++preparation environment because downloading the Gradle distribution was blocked;
++the code still needs a full build and in-game test on GTNH 2.9.0.
+diff --git a/src/main/java/codechicken/nei/SearchTokenParser.java b/src/main/java/codechicken/nei/SearchTokenParser.java
+index 96031dc..544a664 100644
+--- a/src/main/java/codechicken/nei/SearchTokenParser.java
++++ b/src/main/java/codechicken/nei/SearchTokenParser.java
+@@ -292,7 +292,7 @@ public class SearchTokenParser {
+                         }
+ 
+                         for (SearchToken token : splitSearchText(contextQuery[0] + contextQuery[1])) {
+-                            final ItemFilter result = token.getFilter(this);
++                            final ItemFilter result = token.getFilter(this, true);
+                             if (result != null) {
+                                 tokens.add(
+                                         new RecipeFilter(context, token.ignore == null || token.ignore != '!', result));
+diff --git a/src/main/java/codechicken/nei/filter/ExactRecipeNameFilter.java b/src/main/java/codechicken/nei/filter/ExactRecipeNameFilter.java
+new file mode 100644
+index 0000000..23dc79c
+--- /dev/null
++++ b/src/main/java/codechicken/nei/filter/ExactRecipeNameFilter.java
+@@ -0,0 +1,23 @@
++package codechicken.nei.filter;
++
++import net.minecraft.item.ItemStack;
++import net.minecraft.util.EnumChatFormatting;
++
++import codechicken.nei.api.ItemFilter;
++
++/** Matches the complete visible item name in recipe searches, ignoring case and formatting. */
++public final class ExactRecipeNameFilter implements ItemFilter {
++
++    private final String name;
++
++    public ExactRecipeNameFilter(String name) {
++        this.name = name;
++    }
++
++    @Override
++    public boolean matches(ItemStack stack) {
++        if (stack == null) return false;
++        String displayName = EnumChatFormatting.getTextWithoutFormattingCodes(stack.getDisplayName());
++        return displayName != null && displayName.equalsIgnoreCase(name);
++    }
++}
+diff --git a/src/main/java/codechicken/nei/search/ItemFilterVisitor.java b/src/main/java/codechicken/nei/search/ItemFilterVisitor.java
+index b42ecbf..c284d8a 100644
+--- a/src/main/java/codechicken/nei/search/ItemFilterVisitor.java
++++ b/src/main/java/codechicken/nei/search/ItemFilterVisitor.java
+@@ -16,6 +16,7 @@ import codechicken.nei.ItemList.NothingItemFilter;
+ import codechicken.nei.NEIClientConfig;
+ import codechicken.nei.SearchTokenParser;
+ import codechicken.nei.api.ItemFilter;
++import codechicken.nei.filter.ExactRecipeNameFilter;
+ 
+ public class ItemFilterVisitor extends AbstractSearchExpressionVisitor<ItemFilter> {
+ 
+@@ -23,9 +24,15 @@ public class ItemFilterVisitor extends AbstractSearchExpressionVisitor<ItemFilte
+     private static final Pattern ESCAPED_SYMBOL_PATTERN = Pattern.compile("\\\\(.)");
+     private static final Pattern ESCAPED_QUOTE_PATTERN = Pattern.compile("\\\\\"");
+     private static final Pattern ESCAPED_SPACE_PATTERN = Pattern.compile("\\\\ ");
++    private final boolean exactRecipeNames;
+ 
+     public ItemFilterVisitor(SearchTokenParser searchParser) {
++        this(searchParser, false);
++    }
++
++    public ItemFilterVisitor(SearchTokenParser searchParser, boolean exactRecipeNames) {
+         super(searchParser);
++        this.exactRecipeNames = exactRecipeNames;
+     }
+ 
+     @Override
+@@ -81,6 +88,10 @@ public class ItemFilterVisitor extends AbstractSearchExpressionVisitor<ItemFilte
+ 
+     @Override
+     public ItemFilter visitToken(SearchExpressionParser.TokenContext ctx) {
++        if (exactRecipeNames && ctx.quoted() != null) {
++            final String exactName = getQuotedText(ctx);
++            return exactName == null ? defaultResult() : new ExactRecipeNameFilter(exactName);
++        }
+         final String cleanPattern = getCleanPattern(ctx);
+         if (cleanPattern != null) {
+             return getAlwaysProvidersFilter(cleanPattern);
+@@ -150,6 +161,16 @@ public class ItemFilterVisitor extends AbstractSearchExpressionVisitor<ItemFilte
+         return cleanPattern;
+     }
+ 
++    private String getQuotedText(SearchExpressionParser.TokenContext ctx) {
++        if (ctx.quoted() == null || ctx.quoted().QUOTED_CONTENT() == null) return null;
++        String text = ctx.quoted().QUOTED_CONTENT().getSymbol().getText();
++        text = ESCAPED_QUOTE_PATTERN.matcher(text).replaceAll("\"");
++        if (NEIClientConfig.getIntSetting("inventory.search.spaceMode") == 1) {
++            text = ESCAPED_SPACE_PATTERN.matcher(text).replaceAll(" ");
++        }
++        return text;
++    }
++
+     private ItemFilter visitChildren(ParserRuleContext node, Function<List<ItemFilter>, ItemFilter> filterConstructor) {
+         if (node.children != null && !node.children.isEmpty()) {
+             // By default return any found rule child filter (there should be only one)
+diff --git a/src/main/java/codechicken/nei/search/RecipeFilterVisitor.java b/src/main/java/codechicken/nei/search/RecipeFilterVisitor.java
+index 2841100..a691c45 100644
+--- a/src/main/java/codechicken/nei/search/RecipeFilterVisitor.java
++++ b/src/main/java/codechicken/nei/search/RecipeFilterVisitor.java
+@@ -20,7 +20,7 @@ public class RecipeFilterVisitor extends AbstractSearchExpressionVisitor<IRecipe
+ 
+     public RecipeFilterVisitor(SearchTokenParser searchParser) {
+         super(searchParser);
+-        itemFilterVisitor = new ItemFilterVisitor(searchParser);
++        itemFilterVisitor = new ItemFilterVisitor(searchParser, true);
+     }
+ 
+     @Override
+diff --git a/src/main/java/codechicken/nei/search/SearchToken.java b/src/main/java/codechicken/nei/search/SearchToken.java
+index 05ff901..4193358 100644
+--- a/src/main/java/codechicken/nei/search/SearchToken.java
++++ b/src/main/java/codechicken/nei/search/SearchToken.java
+@@ -11,6 +11,7 @@ import codechicken.nei.SearchTokenParser;
+ import codechicken.nei.SearchTokenParser.ISearchParserProvider;
+ import codechicken.nei.SearchTokenParser.SearchMode;
+ import codechicken.nei.api.ItemFilter;
++import codechicken.nei.filter.ExactRecipeNameFilter;
+ 
+ public class SearchToken {
+ 
+@@ -25,12 +26,19 @@ public class SearchToken {
+     public int end = 0;
+ 
+     public ItemFilter getFilter(SearchTokenParser parser) {
++        return getFilter(parser, false);
++    }
++
++    /** In recipe searches only, unprefixed quoted text selects one complete item name. */
++    public ItemFilter getFilter(SearchTokenParser parser, boolean exactRecipeName) {
+         if (this.words == null || this.words.length == 0) {
+             return null;
+         }
+ 
+         if (!this.rawText.isEmpty()) {
+-            final ItemFilter result = parseToken(parser);
++            final ItemFilter result = exactRecipeName && this.quotes && this.firstChar == null
++                    ? new ExactRecipeNameFilter(this.words[0])
++                    : parseToken(parser);
+ 
+             if (this.ignore != null) {
+                 return new NegatedItemFilter(result);
+diff --git a/src/main/resources/assets/nei/lang/en_US.lang b/src/main/resources/assets/nei/lang/en_US.lang
+index 9153349..e434f4d 100644
+--- a/src/main/resources/assets/nei/lang/en_US.lang
++++ b/src/main/resources/assets/nei/lang/en_US.lang
+@@ -660,7 +660,7 @@ nei.recipe.search.tooltip.prefix.chemicalFormula=search by chemical formula
+ nei.recipe.search.tooltip.exclude=%s§ftext§8 - §7exclude items with text
+ nei.recipe.search.tooltip.exclude_recipe=%s§ftext§8 - §7exclude recipes with text
+ nei.recipe.search.tooltip.or=§fa%s§fb§8 - §7match a or b
+-nei.recipe.search.tooltip.exact=%s§ftext%s§8 - §7match exact phrase
++nei.recipe.search.tooltip.exact=%s§ftext%s§8 - §7exact item name (e.g. "Steel Ingot")
+ 
+ nei.recipe.shaped=Shaped Crafting
+ nei.recipe.shapeless=Shapeless Crafting
+diff --git a/src/test/java/codechicken/nei/SearchTokenParserTest.java b/src/test/java/codechicken/nei/SearchTokenParserTest.java
+index f93431b..7670a14 100644
+--- a/src/test/java/codechicken/nei/SearchTokenParserTest.java
++++ b/src/test/java/codechicken/nei/SearchTokenParserTest.java
+@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Named.named;
+ import static org.mockito.Mockito.*;
+ 
+ import java.util.ArrayList;
++import java.util.Collections;
+ import java.util.List;
+ import java.util.Set;
+ import java.util.function.Function;
+@@ -31,7 +32,9 @@ import codechicken.nei.ItemList.AllMultiItemFilter;
+ import codechicken.nei.ItemList.AnyMultiItemFilter;
+ import codechicken.nei.ItemList.PatternItemFilter;
+ import codechicken.nei.SearchField.SearchParserProvider;
++import codechicken.nei.api.IRecipeFilter;
+ import codechicken.nei.api.ItemFilter;
++import codechicken.nei.recipe.IRecipeHandler;
+ import codechicken.nei.search.IdentifierFilter;
+ 
+ @DisplayName("Search expression")
+@@ -321,6 +324,41 @@ public class SearchTokenParserTest {
+         assertTrue(matchedItems.contains(itemABC));
+     }
+ 
++    @DisplayName("Quoted recipe text matches the complete item name only")
++    @ParameterizedTest(name = "{argumentsWithNames}")
++    @FieldSource("allModesTestProvider")
++    public void testExactQuotedRecipeName(int spaceMode, int patternMode) {
++        SearchTokenParser searchParser = new SearchTokenParser();
++        searchParser.addProvider(defaultParserProvider);
++        IRecipeHandler handler = mock(IRecipeHandler.class);
++        when(handler.getIngredientStacks(0)).thenReturn(Collections.emptyList());
++        when(handler.getOtherStacks(0)).thenReturn(Collections.emptyList());
++
++        PositionedStack recipeOutput = mock(PositionedStack.class);
++        recipeOutput.items = new ItemStack[] { itemAB };
++        when(handler.getResultStack(0)).thenReturn(recipeOutput);
++
++        String quoted = "\"" + itemAB.getDisplayName() + "\"";
++        assertTrue(testRecipeFilter(spaceMode, patternMode, searchParser, ">" + quoted, handler));
++        assertFalse(testRecipeFilter(spaceMode, patternMode, searchParser, "<" + quoted, handler));
++
++        // A longer item name must not match the quoted recipe filter.
++        recipeOutput.items = new ItemStack[] { itemABC };
++        assertFalse(testRecipeFilter(spaceMode, patternMode, searchParser, ">" + quoted, handler));
++        assertTrue(testRecipeFilter(spaceMode, patternMode, searchParser, ">" + itemAB.getDisplayName(), handler));
++
++        // Normal item search keeps its existing substring behavior.
++        assertTrue(testFilterAgainstAllItems(spaceMode, patternMode, searchParser, quoted).contains(itemABC));
++    }
++
++    private static boolean testRecipeFilter(int spaceMode, int patternMode, SearchTokenParser searchParser,
++            String search, IRecipeHandler handler) {
++        config.when(() -> NEIClientConfig.getIntSetting(eq("inventory.search.patternMode"))).thenReturn(patternMode);
++        config.when(() -> NEIClientConfig.getIntSetting(eq("inventory.search.spaceMode"))).thenReturn(spaceMode);
++        IRecipeFilter filter = searchParser.getRecipeFilter(search);
++        return filter.matches(handler, 0);
++    }
++
+     // Extended+ specific tests
+ 
+     @DisplayName("Sequence")
