@@ -11,6 +11,7 @@ import codechicken.nei.SearchTokenParser;
 import codechicken.nei.SearchTokenParser.ISearchParserProvider;
 import codechicken.nei.SearchTokenParser.SearchMode;
 import codechicken.nei.api.ItemFilter;
+import codechicken.nei.filter.ExactRecipeNameFilter;
 
 public class SearchToken {
 
@@ -25,12 +26,19 @@ public class SearchToken {
     public int end = 0;
 
     public ItemFilter getFilter(SearchTokenParser parser) {
+        return getFilter(parser, false);
+    }
+
+    /** In recipe searches only, unprefixed quoted text selects one complete item name. */
+    public ItemFilter getFilter(SearchTokenParser parser, boolean exactRecipeName) {
         if (this.words == null || this.words.length == 0) {
             return null;
         }
 
         if (!this.rawText.isEmpty()) {
-            final ItemFilter result = parseToken(parser);
+            final ItemFilter result = exactRecipeName && this.quotes && this.firstChar == null
+                    ? new ExactRecipeNameFilter(this.words[0])
+                    : parseToken(parser);
 
             if (this.ignore != null) {
                 return new NegatedItemFilter(result);

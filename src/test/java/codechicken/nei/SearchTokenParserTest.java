@@ -474,6 +474,29 @@ public class SearchTokenParserTest {
         assertFalse(testRecipeFilter(spaceMode, patternMode, searchParser, "~-{foo|qqq}", handler));
     }
 
+    @DisplayName("Quoted recipe search matches the complete item name only")
+    @ParameterizedTest(name = "{argumentsWithNames}")
+    @FieldSource("allModesTestProvider")
+    public void testExactQuotedRecipeName(int spaceMode, int patternMode) {
+        SearchTokenParser searchParser = new SearchTokenParser();
+        searchParser.addProvider(defaultParserProvider);
+        IRecipeHandler handler = mock(IRecipeHandler.class);
+        when(handler.getSearchStacks(0, RecipeRole.INPUT)).thenReturn(Collections.emptyList());
+        when(handler.getSearchStacks(0, RecipeRole.AUXILIARY)).thenReturn(Collections.emptyList());
+        when(handler.getSearchStacks(0, RecipeRole.OUTPUT)).thenReturn(positionedStacks(itemAB));
+
+        String quoted = "\"" + itemAB.getDisplayName() + "\"";
+        assertTrue(testRecipeFilter(spaceMode, patternMode, searchParser, ">" + quoted, handler));
+        assertFalse(testRecipeFilter(spaceMode, patternMode, searchParser, "<" + quoted, handler));
+
+        when(handler.getSearchStacks(0, RecipeRole.OUTPUT)).thenReturn(positionedStacks(itemABC));
+        assertFalse(testRecipeFilter(spaceMode, patternMode, searchParser, ">" + quoted, handler));
+        assertTrue(testRecipeFilter(spaceMode, patternMode, searchParser, ">" + itemAB.getDisplayName(), handler));
+
+        // Quoted item searches retain their existing substring behavior.
+        assertTrue(testFilterAgainstAllItems(spaceMode, patternMode, searchParser, quoted).contains(itemABC));
+    }
+
     // Extended+ specific tests
 
     @DisplayName("Sequence")

@@ -3,6 +3,7 @@ package codechicken.nei.search;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.tree.ParseTree;
@@ -12,13 +13,24 @@ import codechicken.nei.ItemList.AllMultiItemFilter;
 import codechicken.nei.ItemList.AnyMultiItemFilter;
 import codechicken.nei.ItemList.NegatedItemFilter;
 import codechicken.nei.ItemList.NothingItemFilter;
+import codechicken.nei.NEIClientConfig;
 import codechicken.nei.SearchTokenParser;
 import codechicken.nei.api.ItemFilter;
+import codechicken.nei.filter.ExactRecipeNameFilter;
 
 public class ItemFilterVisitor extends AbstractSearchExpressionVisitor<ItemFilter> {
 
+    private static final Pattern ESCAPED_QUOTE_PATTERN = Pattern.compile("\\\\\"");
+    private static final Pattern ESCAPED_SPACE_PATTERN = Pattern.compile("\\\\ ");
+    private final boolean exactRecipeNames;
+
     public ItemFilterVisitor(SearchTokenParser searchParser) {
+        this(searchParser, false);
+    }
+
+    public ItemFilterVisitor(SearchTokenParser searchParser, boolean exactRecipeNames) {
         super(searchParser);
+        this.exactRecipeNames = exactRecipeNames;
     }
 
     @Override
@@ -74,6 +86,10 @@ public class ItemFilterVisitor extends AbstractSearchExpressionVisitor<ItemFilte
 
     @Override
     public ItemFilter visitToken(SearchExpressionParser.TokenContext ctx) {
+        if (exactRecipeNames && ctx.quoted() != null) {
+            final String exactName = getQuotedText(ctx);
+            return exactName == null ? defaultResult() : new ExactRecipeNameFilter(exactName);
+        }
         final String cleanPattern = SearchExpressionUtils.getCleanPattern(ctx);
         if (cleanPattern != null) {
             return getAlwaysProvidersFilter(cleanPattern);
@@ -84,6 +100,16 @@ public class ItemFilterVisitor extends AbstractSearchExpressionVisitor<ItemFilte
     @Override
     protected ItemFilter defaultResult() {
         return new NothingItemFilter();
+    }
+
+    private String getQuotedText(SearchExpressionParser.TokenContext ctx) {
+        if (ctx.quoted() == null || ctx.quoted().QUOTED_CONTENT() == null) return null;
+        String text = ctx.quoted().QUOTED_CONTENT().getSymbol().getText();
+        text = ESCAPED_QUOTE_PATTERN.matcher(text).replaceAll("\"");
+        if (NEIClientConfig.getIntSetting("inventory.search.spaceMode") == 1) {
+            text = ESCAPED_SPACE_PATTERN.matcher(text).replaceAll(" ");
+        }
+        return text;
     }
 
     private void addIngredientPermutationItemFilter(SearchExpressionParser.SearchExpressionContext ctx,
