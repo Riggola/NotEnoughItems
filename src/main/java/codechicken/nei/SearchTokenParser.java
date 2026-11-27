@@ -307,7 +307,7 @@ public class SearchTokenParser {
                                     tokens.add(text);
                                 }
                             } else {
-                                final ItemFilter result = token.getFilter(this);
+                                final ItemFilter result = token.getFilter(this, true);
                                 if (result != null) {
                                     tokens.add(
                                             new RecipeFilter(

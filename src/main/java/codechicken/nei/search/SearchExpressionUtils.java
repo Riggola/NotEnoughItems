@@ -106,6 +106,16 @@ public class SearchExpressionUtils {
         return cleanPattern;
     }
 
+    public static String getCleanQuotedText(SearchExpressionParser.TokenContext ctx) {
+        if (ctx.quoted() == null || ctx.quoted().QUOTED_CONTENT() == null) return null;
+        String text = ctx.quoted().QUOTED_CONTENT().getSymbol().getText();
+        text = ESCAPED_QUOTE_PATTERN.matcher(text).replaceAll("\"");
+        if (NEIClientConfig.getIntSetting("inventory.search.spaceMode") == 1) {
+            text = ESCAPED_SPACE_PATTERN.matcher(text).replaceAll(" ");
+        }
+        return text;
+    }
+
     private static <T> SearchExpressionParser createSearchExpressionParser(String text, SearchTokenParser searchParser,
             SearchExpressionParserBaseVisitor<T> visitor) {
         final boolean doLogExceptions = NEIClientConfig.getBooleanSetting("inventory.search.logSearchExceptions");

@@ -14,11 +14,19 @@ import codechicken.nei.ItemList.NegatedItemFilter;
 import codechicken.nei.ItemList.NothingItemFilter;
 import codechicken.nei.SearchTokenParser;
 import codechicken.nei.api.ItemFilter;
+import codechicken.nei.filter.ExactRecipeNameFilter;
 
 public class ItemFilterVisitor extends AbstractSearchExpressionVisitor<ItemFilter> {
 
+    private final boolean exactRecipeNames;
+
     public ItemFilterVisitor(SearchTokenParser searchParser) {
+        this(searchParser, false);
+    }
+
+    public ItemFilterVisitor(SearchTokenParser searchParser, boolean exactRecipeNames) {
         super(searchParser);
+        this.exactRecipeNames = exactRecipeNames;
     }
 
     @Override
@@ -74,6 +82,10 @@ public class ItemFilterVisitor extends AbstractSearchExpressionVisitor<ItemFilte
 
     @Override
     public ItemFilter visitToken(SearchExpressionParser.TokenContext ctx) {
+        if (exactRecipeNames && ctx.quoted() != null) {
+            final String exactName = SearchExpressionUtils.getCleanQuotedText(ctx);
+            return exactName == null ? defaultResult() : new ExactRecipeNameFilter(exactName);
+        }
         final String cleanPattern = SearchExpressionUtils.getCleanPattern(ctx);
         if (cleanPattern != null) {
             return getAlwaysProvidersFilter(cleanPattern);
